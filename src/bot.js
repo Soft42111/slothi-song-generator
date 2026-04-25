@@ -92,11 +92,71 @@ async function showHelp(interactionOrMessage) {
     }
 }
 
+// Helper to generate lyrics via AI
+async function generateLyricsProcess(interactionOrMessage, theme) {
+    const userId = (interactionOrMessage.user || interactionOrMessage.author).id;
+    const isInteraction = interactionOrMessage.update !== undefined;
+    
+    const statusEmbed = new EmbedBuilder()
+        .setColor(COLORS.SECONDARY)
+        .setTitle(`${EMOJIS.THINKING} Writing Lyrics`)
+        .setDescription(`${EMOJIS.LOADING} Qwen 3.5 is crafting your masterpiece about: *"${theme}"*...`);
+
+    let statusMsg;
+    if (isInteraction) {
+        statusMsg = await interactionOrMessage.update({ 
+            embeds: [statusEmbed], 
+            components: [], 
+            fetchReply: true 
+        });
+    } else {
+        statusMsg = await interactionOrMessage.reply({ embeds: [statusEmbed] });
+    }
+
+    try {
+        const lyrics = await sogni.generateLyrics(theme);
+        session.update(userId, { step: 'AWAITING_STYLE', lyrics, lastTheme: theme });
+        
+        const row = new ActionRowBuilder()
+            .addComponents(
+                new ButtonBuilder()
+                    .setCustomId('lyrics_regenerate')
+                    .setLabel('Regenerate')
+                    .setStyle(ButtonStyle.Secondary)
+                    .setEmoji('🔄'),
+            );
+
+        const lyricsEmbed = new EmbedBuilder()
+            .setColor(COLORS.SUCCESS)
+            .setTitle(`${EMOJIS.LYRICS} Lyrics Crafted`)
+            .setDescription(`\`\`\`\n${lyrics.substring(0, 1800)}\n\`\`\``)
+            .addFields({ name: 'Next Step', value: 'Enter the **music style** (e.g., "90s Rock", "Synthwave Pop").' });
+
+        await statusMsg.edit({ 
+            embeds: [lyricsEmbed], 
+            components: [row] 
+        });
+    } catch (err) {
+        console.error('[Bot] Lyric Generation Error:', err);
+        const errorEmbed = new EmbedBuilder()
+            .setColor(COLORS.ERROR)
+            .setTitle(`${EMOJIS.ERROR} Lyric Generation Failed`)
+            .setDescription('Unable to generate lyrics. Please try again.');
+        
+        if (isInteraction) {
+            await interactionOrMessage.editReply({ embeds: [errorEmbed], components: [] });
+        } else {
+            await statusMsg.edit({ embeds: [errorEmbed] });
+        }
+    }
+}
+
 client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.isChatInputCommand()) {
         const { commandName } = interaction;
 
         if (commandName === 'music' || commandName === 'song') {
+            const { options } = interaction;
             const duration = options.getInteger('duration');
             await startFlow(interaction);
             if (duration) {
@@ -413,32 +473,7 @@ client.on(Events.MessageCreate, async (message) => {
 
         // --- LYRICS FLOW: Generate Lyrics ---
         else if (userSession.step === 'AWAITING_THEME') {
-            const statusEmbed = new EmbedBuilder()
-                .setColor(COLORS.SECONDARY)
-                .setTitle(`${EMOJIS.THINKING} Writing Lyrics`)
-                .setDescription(`${EMOJIS.LOADING} Qwen 3.5 is crafting your masterpiece about: *"${input}"*...`);
-
-            const statusMsg = await message.reply({ embeds: [statusEmbed] });
-            
-            try {
-                const lyrics = await sogni.generateLyrics(input);
-                session.update(userId, { step: 'AWAITING_STYLE', lyrics });
-                
-                const lyricsEmbed = new EmbedBuilder()
-                    .setColor(COLORS.SUCCESS)
-                    .setTitle(`${EMOJIS.LYRICS} Lyrics Crafted`)
-                    .setDescription(`\`\`\`\n${lyrics.substring(0, 1800)}\n\`\`\``)
-                    .addFields({ name: 'Next Step', value: 'Enter the **music style** (e.g., "90s Rock", "Synthwave Pop").' });
-
-                await statusMsg.edit({ embeds: [lyricsEmbed] });
-            } catch (err) {
-                console.error(err);
-                const errorEmbed = new EmbedBuilder()
-                    .setColor(COLORS.ERROR)
-                    .setTitle(`${EMOJIS.ERROR} Lyric Generation Failed`)
-                    .setDescription('Unable to generate lyrics. Please try again.');
-                await statusMsg.edit({ embeds: [errorEmbed] });
-            }
+            await generateLyricsProcess(message, input);
         }
 
         // --- LYRICS FLOW: Style -> Duration Transition ---
