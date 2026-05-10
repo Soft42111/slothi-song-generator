@@ -23,7 +23,10 @@ const commands = [
         .setDescription('Cancel your current active session'),
     new SlashCommandBuilder()
         .setName('help')
-        .setDescription('Show help and instructions for the Sogni Music Bot')
+        .setDescription('Show help and instructions for the Sogni Music Bot'),
+    new SlashCommandBuilder()
+        .setName('login')
+        .setDescription('Log in with your own Sogni credentials')
 ].map(command => command.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
