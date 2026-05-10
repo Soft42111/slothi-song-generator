@@ -6,7 +6,10 @@ const {
     ButtonStyle, 
     Events, 
     EmbedBuilder,
-    AttachmentBuilder
+    AttachmentBuilder,
+    ModalBuilder,
+    TextInputBuilder,
+    TextInputStyle
 } = require('discord.js');
 const session = require('./session');
 const sogni = require('./sogni');
@@ -114,7 +117,7 @@ async function generateLyricsProcess(interactionOrMessage, theme) {
     }
 
     try {
-        const lyrics = await sogni.generateLyrics(theme);
+        const lyrics = await sogni.generateLyrics(theme, userId);
         session.update(userId, { step: 'AWAITING_STYLE', lyrics, lastTheme: theme });
         
         const row = new ActionRowBuilder()
@@ -167,7 +170,45 @@ client.on(Events.InteractionCreate, async (interaction) => {
         } else if (commandName === 'cancel') {
             session.delete(interaction.user.id);
             await interaction.reply({ content: `${EMOJIS.SUCCESS} Session cancelled.`, ephemeral: true });
+        } else if (commandName === 'login') {
+            const modal = new ModalBuilder()
+                .setCustomId('login_modal')
+                .setTitle('Sogni Credentials');
+
+            const appIdInput = new TextInputBuilder()
+                .setCustomId('app_id')
+                .setLabel("App ID")
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true);
+
+            const apiKeyInput = new TextInputBuilder()
+                .setCustomId('api_key')
+                .setLabel("API Key")
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true);
+
+            const firstActionRow = new ActionRowBuilder().addComponents(appIdInput);
+            const secondActionRow = new ActionRowBuilder().addComponents(apiKeyInput);
+
+            modal.addComponents(firstActionRow, secondActionRow);
+
+            await interaction.showModal(modal);
         }
+    }
+
+    if (interaction.isModalSubmit()) {
+        if (interaction.customId === 'login_modal') {
+            const appId = interaction.fields.getTextInputValue('app_id');
+            const apiKey = interaction.fields.getTextInputValue('api_key');
+            
+            sogni.setCredentials(interaction.user.id, appId, apiKey);
+            
+            await interaction.reply({ 
+                content: `${EMOJIS.SUCCESS} Successfully logged in with custom Sogni credentials! Your commands will now use these credentials.`, 
+                ephemeral: true 
+            });
+        }
+        return;
     }
 
     if (interaction.isButton()) {
@@ -365,7 +406,7 @@ async function startMusicGeneration(interactionOrMessage, style, lyrics, isInstr
 
     try {
         console.log(`[Bot] Requesting music from Sogni SDK (Duration: ${duration}s)...`);
-        const url = await sogni.generateMusic(style, lyrics, isInstrumental, duration);
+        const url = await sogni.generateMusic(style, lyrics, isInstrumental, duration, userId);
         
         console.log(`[Bot] Music generated at: ${url}. Downloading...`);
         const filePath = await sogni.downloadFile(url, `music_${Date.now()}.mp3`);
@@ -432,6 +473,11 @@ client.on(Events.MessageCreate, async (message) => {
     if (content.startsWith('!cancel')) {
         session.delete(message.author.id);
         await message.reply(`${EMOJIS.SUCCESS} Session cancelled.`);
+        return;
+    }
+
+    if (content.startsWith('!login')) {
+        await message.reply(`${EMOJIS.ERROR} Please use the \`/login\` slash command to enter your credentials securely.`);
         return;
     }
 

@@ -7,33 +7,54 @@ require('dotenv').config();
 
 class SogniService {
     constructor() {
-        this.client = null;
+        this.globalClient = null;
+        this.userClients = new Map();
+        this.userCreds = new Map();
     }
 
-    async init() {
-        if (!this.client) {
-            this.client = await SogniClient.createInstance({
+    setCredentials(userId, appId, apiKey) {
+        this.userCreds.set(userId, { appId, apiKey });
+        this.userClients.delete(userId);
+    }
+
+    async init(userId = null) {
+        if (userId && this.userCreds.has(userId)) {
+            if (!this.userClients.has(userId)) {
+                const creds = this.userCreds.get(userId);
+                const client = await SogniClient.createInstance({
+                    appId: creds.appId,
+                    apiKey: creds.apiKey,
+                    network: process.env.NETWORK || 'fast'
+                });
+                this.userClients.set(userId, client);
+                console.log(`Sogni SDK initialized for user ${userId}.`);
+            }
+            return this.userClients.get(userId);
+        }
+
+        if (!this.globalClient) {
+            this.globalClient = await SogniClient.createInstance({
                 appId: process.env.SOGNI_APP_ID || `discord-music-bot-${uuidv4()}`,
                 apiKey: process.env.SOGNI_API_KEY,
                 network: process.env.NETWORK || 'fast'
             });
-            console.log('Sogni SDK initialized.');
+            console.log('Sogni SDK global initialized.');
         }
-        return this.client;
+        return this.globalClient;
     }
 
     /**
      * Generate lyrics using Qwen 3.5
      */
-    async generateLyrics(theme) {
-        await this.init();
+    async generateLyrics(theme, userId = null) {
+        const client = await this.init(userId);
         
         const prompt = `Write high-quality, structured song lyrics about: ${theme}. 
         Use structure tags like [Verse 1], [Chorus], [Bridge], [Outro]. 
         Ensure the lyrics are expressive, emotional, and follow the theme strictly.
         IMPORTANT: Output ONLY the lyrics. Do not include thinking tags, introductions, or explanations.`;
 
-        const response = await this.client.chat.completions.create({
+        const response = await client.chat.completions.create({
             model: 'qwen3.5-35b-a3b-gguf-q4km',
             messages: [
                 { 
@@ -57,8 +78,8 @@ class SogniService {
     /**
      * Generate music using ACE-Step 1.5
      */
-    async generateMusic(style, lyrics = null, isInstrumental = false, duration = 60) {
-        await this.init();
+    async generateMusic(style, lyrics = null, isInstrumental = false, duration = 60, userId = null) {
+        const client = await this.init(userId);
 
         console.log(`[Sogni] Starting ${isInstrumental ? 'instrumental' : 'song'} generation:`, { style, duration });
 
@@ -79,7 +100,7 @@ class SogniService {
             params.language = 'en'; // Default to English
         }
 
-        const project = await this.client.projects.create(params);
+        const project = await client.projects.create(params);
         
         project.on('progress', (progress) => {
             const displayProgress = isNaN(progress) ? 'Processing' : `${progress}%`;
