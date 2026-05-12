@@ -2,6 +2,17 @@ const client = require('./src/bot');
 const { deploy } = require('./src/deploy-commands');
 require('dotenv').config();
 
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('[Anti-Crash] Unhandled Rejection:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+    if (error.message && error.message.includes('WebSocket was closed before the connection was established')) {
+        console.warn('[Anti-Crash] Ignored benign WebSocket closure error.');
+        return;
+    }
+    console.error('[Anti-Crash] Uncaught Exception:', error);
+});
 async function start() {
     if (!process.env.DISCORD_TOKEN) {
         console.error('Error: DISCORD_TOKEN is missing in .env');

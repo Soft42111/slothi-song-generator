@@ -9,7 +9,8 @@ const {
     AttachmentBuilder,
     ModalBuilder,
     TextInputBuilder,
-    TextInputStyle
+    TextInputStyle,
+    MessageFlags
 } = require('discord.js');
 const session = require('./session');
 const sogni = require('./sogni');
@@ -34,7 +35,7 @@ client.once(Events.ClientReady, (c) => {
 // Helper to send the "Type" choice
 async function startFlow(interaction) {
     // Defer the reply to give us 15 minutes of response time
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     const row = new ActionRowBuilder()
         .addComponents(
@@ -88,7 +89,7 @@ async function showHelp(interactionOrMessage) {
         if (interactionOrMessage.deferred || interactionOrMessage.replied) {
             await interactionOrMessage.editReply({ embeds: [embed] });
         } else {
-            await interactionOrMessage.reply({ embeds: [embed], ephemeral: true });
+            await interactionOrMessage.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
         }
     } else {
         await interactionOrMessage.reply({ embeds: [embed] });
@@ -110,14 +111,14 @@ async function generateLyricsProcess(interactionOrMessage, theme) {
         statusMsg = await interactionOrMessage.update({ 
             embeds: [statusEmbed], 
             components: [], 
-            fetchReply: true 
+            withResponse: true 
         });
     } else {
         statusMsg = await interactionOrMessage.reply({ embeds: [statusEmbed] });
     }
 
     try {
-        const lyrics = await sogni.generateLyrics(theme, userId);
+        const lyrics = await sogni.generateLyrics(theme);
         session.update(userId, { step: 'AWAITING_STYLE', lyrics, lastTheme: theme });
         
         const row = new ActionRowBuilder()
@@ -169,47 +170,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
             await showHelp(interaction);
         } else if (commandName === 'cancel') {
             session.delete(interaction.user.id);
-            await interaction.reply({ content: `${EMOJIS.SUCCESS} Session cancelled.`, ephemeral: true });
-        } else if (commandName === 'login') {
-            const modal = new ModalBuilder()
-                .setCustomId('login_modal')
-                .setTitle('Sogni Credentials');
-
-            const appIdInput = new TextInputBuilder()
-                .setCustomId('app_id')
-                .setLabel("App ID")
-                .setStyle(TextInputStyle.Short)
-                .setRequired(true);
-
-            const apiKeyInput = new TextInputBuilder()
-                .setCustomId('api_key')
-                .setLabel("API Key")
-                .setStyle(TextInputStyle.Short)
-                .setRequired(true);
-
-            const firstActionRow = new ActionRowBuilder().addComponents(appIdInput);
-            const secondActionRow = new ActionRowBuilder().addComponents(apiKeyInput);
-
-            modal.addComponents(firstActionRow, secondActionRow);
-
-            await interaction.showModal(modal);
+            await interaction.reply({ content: `${EMOJIS.SUCCESS} Session cancelled.`, flags: MessageFlags.Ephemeral });
         }
     }
 
-    if (interaction.isModalSubmit()) {
-        if (interaction.customId === 'login_modal') {
-            const appId = interaction.fields.getTextInputValue('app_id');
-            const apiKey = interaction.fields.getTextInputValue('api_key');
-            
-            sogni.setCredentials(interaction.user.id, appId, apiKey);
-            
-            await interaction.reply({ 
-                content: `${EMOJIS.SUCCESS} Successfully logged in with custom Sogni credentials! Your commands will now use these credentials.`, 
-                ephemeral: true 
-            });
-        }
-        return;
-    }
 
     if (interaction.isButton()) {
         const userId = interaction.user.id;
@@ -218,7 +182,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (!userSession) {
             return interaction.reply({ 
                 content: `${EMOJIS.ERROR} Session expired. Please start over with \`/music\`.`, 
-                ephemeral: true 
+                flags: MessageFlags.Ephemeral 
             });
         }
 
@@ -396,7 +360,7 @@ async function startMusicGeneration(interactionOrMessage, style, lyrics, isInstr
         statusMsg = await interactionOrMessage.update({
             embeds: [statusEmbed],
             components: [],
-            fetchReply: true
+            withResponse: true
         });
     } else {
         statusMsg = await interactionOrMessage.reply({ embeds: [statusEmbed] });
@@ -406,7 +370,7 @@ async function startMusicGeneration(interactionOrMessage, style, lyrics, isInstr
 
     try {
         console.log(`[Bot] Requesting music from Sogni SDK (Duration: ${duration}s)...`);
-        const url = await sogni.generateMusic(style, lyrics, isInstrumental, duration, userId);
+        const url = await sogni.generateMusic(style, lyrics, isInstrumental, duration);
         
         console.log(`[Bot] Music generated at: ${url}. Downloading...`);
         const filePath = await sogni.downloadFile(url, `music_${Date.now()}.mp3`);
@@ -476,10 +440,6 @@ client.on(Events.MessageCreate, async (message) => {
         return;
     }
 
-    if (content.startsWith('!login')) {
-        await message.reply(`${EMOJIS.ERROR} Please use the \`/login\` slash command to enter your credentials securely.`);
-        return;
-    }
 
     if (content.startsWith('!music') || content.startsWith('!song')) {
         // Mocking an interaction for startFlow
