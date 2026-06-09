@@ -2,6 +2,9 @@
 
 A premium, high-fidelity Discord music generation bot powered by the **Sogni Supernet**. Create professional-grade songs and instrumentals directly from your Discord server with an interactive, "Liquid Glass" themed interface.
 
+[![Discord](https://img.shields.io/badge/Discord-%235865F2.svg?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/agsqwE3DQ6)  
+👉 **[Test this bot for free on Discord!](https://discord.gg/agsqwE3DQ6)**
+
 **Developed by Basit**
 
 ## ✨ Features
