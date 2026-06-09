@@ -1,0 +1,20 @@
+name: Deploy Bot to Kerit Cloud
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Pterodactyl Deployment Action
+        uses: mscoutermarsh/pterodactyl-color-action@v2.1.0
+        with:
+          panel-url: ${{ secrets.PTERODACTYL_URL }}
+          api-key: ${{ secrets.PTERODACTYL_API_KEY }}
+          server-id: ${{ secrets.PTERODACTYL_SERVER_ID }}
