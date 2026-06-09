@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const mm = require('music-metadata');
+const { exec } = require('child_process');
 require('dotenv').config();
 
 class SogniService {
@@ -477,6 +478,29 @@ CRITICAL RULES:
             try { fs.unlinkSync(tempPath); } catch (e) {}
             throw err;
         }
+    }
+
+    /**
+     * Compress or transcode audio file to MP3 format using ffmpeg
+     */
+    async compressAudio(inputPath, bitrate = '192k') {
+        const tempDir = path.dirname(inputPath);
+        const outputPath = path.join(tempDir, `compressed_${Date.now()}.mp3`);
+        
+        console.log(`[Sogni] Compressing audio ${inputPath} to MP3 at ${bitrate}...`);
+        
+        return new Promise((resolve, reject) => {
+            // Run ffmpeg command
+            exec(`ffmpeg -y -i "${inputPath}" -b:a ${bitrate} "${outputPath}"`, (err, stdout, stderr) => {
+                if (err) {
+                    console.error('[Sogni] ffmpeg compression failed:', err);
+                    reject(err);
+                } else {
+                    console.log(`[Sogni] Audio compressed successfully to: ${outputPath}`);
+                    resolve(outputPath);
+                }
+            });
+        });
     }
 
     /**

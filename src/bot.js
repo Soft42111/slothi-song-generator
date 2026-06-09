@@ -410,6 +410,69 @@ async function showDurationStep(message, stylePrompt) {
     });
 }
 
+// Send audio file with automatic compression retry if file is too large for Discord's limits
+async function sendAudioFileWithRetry(channel, userId, embed, filePath) {
+    let currentFilePath = filePath;
+    let compressedFilePath = null;
+    let retries = 0;
+    const maxRetries = 2;
+    const bitrates = ['192k', '96k'];
+
+    while (retries <= maxRetries) {
+        try {
+            console.log(`[Bot] Attempting to send file (attempt ${retries + 1}): ${currentFilePath}`);
+            const attachment = new AttachmentBuilder(currentFilePath);
+            
+            let finalEmbed = EmbedBuilder.from(embed);
+            if (compressedFilePath) {
+                const sizeMB = (fs.statSync(filePath).size / (1024 * 1024)).toFixed(2);
+                finalEmbed.setDescription((embed.data.description || '') + `\n\n⚠️ *Original track was too large (${sizeMB}MB) for Discord's file upload limit and was automatically compressed to MP3.*`);
+            }
+
+            await channel.send({
+                content: `<@${userId}>`,
+                embeds: [finalEmbed],
+                files: [attachment]
+            });
+
+            // Clean up files
+            sogni.cleanup(filePath);
+            if (compressedFilePath) {
+                sogni.cleanup(compressedFilePath);
+            }
+            return;
+        } catch (err) {
+            console.error(`[Bot] Error sending file on attempt ${retries + 1}:`, err);
+            
+            const isTooLarge = err.status === 413 || err.code === 40005 || (err.message && err.message.toLowerCase().includes('too large'));
+            
+            if (isTooLarge && retries < maxRetries) {
+                console.log(`[Bot] File size exceeds Discord limit. Triggering automatic compression...`);
+                try {
+                    if (compressedFilePath) {
+                        sogni.cleanup(compressedFilePath);
+                    }
+                    
+                    const bitrate = bitrates[retries];
+                    compressedFilePath = await sogni.compressAudio(filePath, bitrate);
+                    currentFilePath = compressedFilePath;
+                    retries++;
+                    continue;
+                } catch (compErr) {
+                    console.error('[Bot] Failed to compress audio:', compErr);
+                    break;
+                }
+            } else {
+                sogni.cleanup(filePath);
+                if (compressedFilePath) {
+                    sogni.cleanup(compressedFilePath);
+                }
+                throw err;
+            }
+        }
+    }
+}
+
 // Helper to start the actual generation process
 async function startMusicGeneration(interactionOrMessage, style, lyrics, isInstrumental, duration) {
     const userId = (interactionOrMessage.user || interactionOrMessage.author).id;
@@ -456,7 +519,6 @@ async function startMusicGeneration(interactionOrMessage, style, lyrics, isInstr
         }
         
         console.log(`[Bot] Downloaded to: ${filePath}. Uploading to Discord...`);
-        const attachment = new AttachmentBuilder(filePath);
 
         const finalEmbed = new EmbedBuilder()
             .setColor(COLORS.SUCCESS)
@@ -468,12 +530,8 @@ async function startMusicGeneration(interactionOrMessage, style, lyrics, isInstr
             )
             .setFooter({ text: 'Sogni AI • High Fidelity' });
 
-        // Send a NEW message for the file to ensure stability
-        await interactionOrMessage.channel.send({
-            content: `<@${userId}>`,
-            embeds: [finalEmbed],
-            files: [attachment]
-        });
+        // Send with automatic compression retry
+        await sendAudioFileWithRetry(interactionOrMessage.channel, userId, finalEmbed, filePath);
         
         // Finalize the processing message
         try {
@@ -485,7 +543,6 @@ async function startMusicGeneration(interactionOrMessage, style, lyrics, isInstr
         } catch (e) { /* ignore cleanup errors */ }
         
         console.log(`[Bot] Final song delivered via new message.`);
-        sogni.cleanup(filePath);
     } catch (err) {
         console.error('[Bot] Generation Error Detail:', err);
         if (err.stack) console.error(err.stack);
@@ -862,7 +919,6 @@ async function runConversationalAgent(message, cleanedContent, originalSongConte
                         }
 
                         console.log(`[Bot] Downloaded to: ${filePath}. Uploading to Discord...`);
-                        const attachment = new AttachmentBuilder(filePath);
 
                         const finalEmbed = new EmbedBuilder()
                             .setColor(COLORS.SUCCESS)
@@ -878,11 +934,8 @@ async function runConversationalAgent(message, cleanedContent, originalSongConte
 
                         finalEmbed.setFooter({ text: 'Sogni AI • High Fidelity' });
 
-                        await message.channel.send({
-                            content: `<@${userId}>`,
-                            embeds: [finalEmbed],
-                            files: [attachment]
-                        });
+                        // Send with automatic compression retry
+                        await sendAudioFileWithRetry(message.channel, userId, finalEmbed, filePath);
 
                         try {
                             await statusMsg.edit({
@@ -891,8 +944,6 @@ async function runConversationalAgent(message, cleanedContent, originalSongConte
                                 components: []
                             });
                         } catch (e) {}
-
-                        sogni.cleanup(filePath);
                         toolResultContent = 'Music generated and delivered successfully to the user.';
                         shouldBreak = true;
                     }
