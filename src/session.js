@@ -33,6 +33,31 @@ class SessionManager {
         return updated;
     }
 
+    initConversational(userId, systemPrompt) {
+        return this.set(userId, {
+            step: 'conversational',
+            messages: [{ role: 'system', content: systemPrompt }]
+        });
+    }
+
+    pruneMessages(userId, maxMessages = 20) {
+        const session = this.get(userId);
+        if (!session || !session.messages || session.messages.length <= maxMessages) return;
+
+        const systemPrompt = session.messages[0];
+        const recentMessages = session.messages.slice(-maxMessages);
+        
+        // Ensure system prompt is preserved at index 0
+        if (systemPrompt && systemPrompt.role === 'system') {
+            session.messages = [systemPrompt, ...recentMessages.filter(m => m.role !== 'system')];
+        } else {
+            session.messages = recentMessages;
+        }
+        
+        session.lastUpdate = Date.now();
+        this.sessions.set(userId, session);
+    }
+
     delete(userId) {
         this.sessions.delete(userId);
     }
