@@ -34,6 +34,53 @@ client.once(Events.ClientReady, (c) => {
     setInterval(() => session.cleanup(), 5 * 60 * 1000);
 });
 
+// Helper to get local date string for memory files (e.g. jun9)
+function getTodayDateStr() {
+    const date = new Date();
+    const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+    const month = months[date.getMonth()];
+    const day = date.getDate();
+    return `${month}${day}`;
+}
+
+// Helper to load memory context from the workspace memory files
+function loadMemoryContext() {
+    const memoryDir = path.join(process.cwd(), 'memory');
+    let soulContent = '';
+    let memoryContent = '';
+    let dailyContent = '';
+
+    try {
+        const soulPath = path.join(memoryDir, 'SOUL.md');
+        if (fs.existsSync(soulPath)) {
+            soulContent = fs.readFileSync(soulPath, 'utf8');
+        }
+    } catch (e) {
+        console.error('[Memory] Error reading SOUL.md:', e);
+    }
+
+    try {
+        const memoryPath = path.join(memoryDir, 'Memory.md');
+        if (fs.existsSync(memoryPath)) {
+            memoryContent = fs.readFileSync(memoryPath, 'utf8');
+        }
+    } catch (e) {
+        console.error('[Memory] Error reading Memory.md:', e);
+    }
+
+    try {
+        const dateStr = getTodayDateStr();
+        const dailyPath = path.join(memoryDir, `memory_${dateStr}.md`);
+        if (fs.existsSync(dailyPath)) {
+            dailyContent = fs.readFileSync(dailyPath, 'utf8');
+        }
+    } catch (e) {
+        console.error(`[Memory] Error reading daily memory:`, e);
+    }
+
+    return { soulContent, memoryContent, dailyContent };
+}
+
 // Helper to send the "Type" choice
 async function startFlow(interaction) {
     // Defer the reply to give us 15 minutes of response time
@@ -712,6 +759,31 @@ const MUSIC_TOOLS = [
                 required: ['url']
             }
         }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'update_agent_memory',
+            description: 'Updates the agent\'s persistent memory. Call this at the end of a song generation, or when the user asks you to remember something, or at the end of the session to save a summary. You must specify what was done/learned today to append to the daily log, and any updates to the master memory or status.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    daily_summary: {
+                        type: 'string',
+                        description: 'Detailed description of what was done, decided, or learned in this conversation to be appended to today\'s daily log.'
+                    },
+                    master_timeline_update: {
+                        type: 'string',
+                        description: 'A brief 1-2 sentence summary of today\'s milestones to append to the master memory timeline (if any).'
+                    },
+                    current_status_update: {
+                        type: 'string',
+                        description: 'Updates to the current status or next steps in the master memory (if any).'
+                    }
+                },
+                required: ['daily_summary']
+            }
+        }
     }
 ];
 
@@ -734,6 +806,7 @@ When talking to the user:
 - Once you have gathered the style and if it is an instrumental or has lyrics, call the "generate_music" tool with the collected parameters.
 - If the user asks to cancel, start over, or clear history, call "cancel_session".
 - If the user asks for help or how to use the bot, call "get_help".
+- **Memory Management**: You have a memory system consisting of a persona (SOUL.md) and history (Memory.md). When you successfully generate a song, lyrics, or the user tells you personal musical preferences, call the "update_agent_memory" tool to save these details. This is extremely important so that you can remember the user's preferences and past generations in future conversations.
 
 Be friendly, concise, creative, and professional. Do not output markdown code blocks containing the tools or internal details.`;
 
@@ -741,14 +814,32 @@ async function runConversationalAgent(message, cleanedContent, originalSongConte
     const userId = message.author.id;
     let userSession = session.get(userId);
 
+    // Load dynamic memory context from disk
+    const { soulContent, memoryContent, dailyContent } = loadMemoryContext();
+    let dynamicPrompt = CONVERSATIONAL_SYSTEM_PROMPT;
+    if (soulContent) {
+        dynamicPrompt += `\n\n=== SOUL (Personality & Identity) ===\n${soulContent}`;
+    }
+    if (memoryContent) {
+        dynamicPrompt += `\n\n=== MASTER MEMORY (Preferences & History) ===\n${memoryContent}`;
+    }
+    if (dailyContent) {
+        dynamicPrompt += `\n\n=== TODAY'S MEMORY (Session Log) ===\n${dailyContent}`;
+    }
+
     // Initialize session if not active or if in another mode
     if (!userSession || userSession.step !== 'conversational') {
-        userSession = session.initConversational(userId, CONVERSATIONAL_SYSTEM_PROMPT);
+        userSession = session.initConversational(userId, dynamicPrompt);
+    } else {
+        // Dynamically update the system message with latest memory
+        if (userSession.messages && userSession.messages.length > 0 && userSession.messages[0].role === 'system') {
+            userSession.messages[0].content = dynamicPrompt;
+        }
     }
 
     if (originalSongContext) {
         // Reset message history to clear older state and seed the edit context
-        userSession.messages = [{ role: 'system', content: CONVERSATIONAL_SYSTEM_PROMPT }];
+        userSession.messages = [{ role: 'system', content: dynamicPrompt }];
         userSession.messages.push({ role: 'system', content: originalSongContext });
         if (originalLyrics) {
             userSession.lyrics = originalLyrics;
@@ -796,6 +887,69 @@ async function runConversationalAgent(message, cleanedContent, originalSongConte
                         await message.reply(`${EMOJIS.SUCCESS} Session cancelled and reset.`);
                         toolResultContent = 'Session cancelled and reset successfully.';
                         shouldBreak = true;
+                    } 
+                    else if (functionName === 'update_agent_memory') {
+                        const { daily_summary, master_timeline_update, current_status_update } = args;
+                        const memoryDir = path.join(process.cwd(), 'memory');
+                        if (!fs.existsSync(memoryDir)) {
+                            fs.mkdirSync(memoryDir, { recursive: true });
+                        }
+
+                        // 1. Update Daily Memory
+                        const dateStr = getTodayDateStr();
+                        const dailyPath = path.join(memoryDir, `memory_${dateStr}.md`);
+                        const dateTitle = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+                        
+                        let dailyText = `# Daily Memory: ${dateTitle}\n\n`;
+                        if (fs.existsSync(dailyPath)) {
+                            dailyText = fs.readFileSync(dailyPath, 'utf8');
+                        }
+                        
+                        dailyText += `\n### Session Log (${new Date().toLocaleTimeString('en-US')})\n- ${daily_summary.split('\n').join('\n- ')}\n`;
+                        fs.writeFileSync(dailyPath, dailyText, 'utf8');
+
+                        // 2. Update Master Memory
+                        const masterPath = path.join(memoryDir, 'Memory.md');
+                        if (fs.existsSync(masterPath)) {
+                            let masterText = fs.readFileSync(masterPath, 'utf8');
+                            
+                            // If master_timeline_update is provided, update timeline
+                            if (master_timeline_update) {
+                                const todayStr = new Date().toISOString().split('T')[0];
+                                const dateHeader = `### ${todayStr}`;
+                                
+                                if (masterText.includes(dateHeader)) {
+                                    // Append action
+                                    const regex = new RegExp(`(${dateHeader}[\\s\\S]*?)(?=\\n### |\\n---)`);
+                                    masterText = masterText.replace(regex, `$1\n  - ${master_timeline_update}`);
+                                } else {
+                                    // Insert under progress summary
+                                    const summaryHeader = '## 3. Chronological Progress Summary';
+                                    if (masterText.includes(summaryHeader)) {
+                                        masterText = masterText.replace(
+                                            summaryHeader, 
+                                            `${summaryHeader}\n\n${dateHeader}\n- **Actions**:\n  - ${master_timeline_update}`
+                                        );
+                                    }
+                                }
+                            }
+
+                            // If current_status_update is provided, update status/next steps
+                            if (current_status_update) {
+                                const statusHeader = '## 4. Current Project Status & Next Steps';
+                                if (masterText.includes(statusHeader)) {
+                                    const regex = new RegExp(`(${statusHeader}[\\s\\S]*?)(?=\\n---)`);
+                                    masterText = masterText.replace(
+                                        statusHeader, 
+                                        `${statusHeader}\n- ${current_status_update}\n`
+                                    );
+                                }
+                            }
+
+                            fs.writeFileSync(masterPath, masterText, 'utf8');
+                        }
+                        
+                        toolResultContent = 'Memory updated successfully on disk.';
                     } 
                     else if (functionName === 'get_help') {
                         await showHelp(message);
