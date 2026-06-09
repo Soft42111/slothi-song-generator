@@ -11,10 +11,9 @@ A premium, high-fidelity Discord music generation bot powered by the **Sogni Sup
 
 - 🎵 **Full Song Generation**: Generate lyrics and music in one flow using ACE-Step 1.5 SFT.
 - 🎹 **Pro Instrumentals**: High-quality background tracks via ACE-Step 1.5 Turbo.
-- ✍️ **AI Lyricist**: Deep, meaningful lyrics powered by Qwen 3.5.
+- ✍️ **AI Lyricist**: Deep, meaningful lyrics powered by Qwen 3.6.
 - ⏱️ **Flexible Duration**: Choose between 10s and 600s with real-time UI controls or "Auto" best-fit.
 - 💬 **Hybrid Commands**: Seamless support for Slash Commands (`/music`) and Prefix Commands (`!music`).
-- 💎 **Liquid Glass UI**: Beautifully crafted embeds and interactive buttons for a premium experience.
 
 ## 🚀 Getting Started
 
@@ -24,7 +23,7 @@ Follow these steps to get your own instance of the Sogni Music Generator up and 
 Before you begin, ensure you have the following:
 - **Node.js**: Version 18.0.0 or higher. [Download here](https://nodejs.org/).
 - **Discord Bot Token**: Create an application on the [Discord Developer Portal](https://discord.com/developers/applications), add a bot, and copy the token.
-- **Sogni API Key**: Sign up at [sogni.ai](https://sogni.ai) to obtain your API key for the Sogni Supernet.
+- **Sogni API Key**: Sign up at [sogni.ai](https://app.sogni.ai) to obtain your API key for the Sogni Supernet.
 - **Privileged Gateway Intents**: Ensure **Message Content Intent** is enabled in your Discord Developer Portal settings.
 
 ### 2. Installation
@@ -80,7 +79,7 @@ The bot supports both Slash Commands and traditional Prefix Commands (`!`).
 - **Engine**: [Node.js](https://nodejs.org/)
 - **SDK**: [Sogni Client](https://www.npmjs.com/package/@sogni-ai/sogni-client)
 - **API**: [Discord.js v14](https://discord.js.org/)
-- **LLM**: Qwen 3.5 (via Sogni Supernet)
+- **LLM**: Qwen 3.6 (via Sogni Supernet)
 - **Audio Gen**: ACE-Step 1.5 (SFT & Turbo)
 
 ## 📜 License
